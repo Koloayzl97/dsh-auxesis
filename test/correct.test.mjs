@@ -1,4 +1,4 @@
-// 纠偏纯函数层回归：会话读取、硬信号抽取、逐字校验、notice 格式。
+// 复核纯函数层回归：会话读取、硬信号抽取、逐字校验、notice 格式。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -79,10 +79,12 @@ test("renderHardSignals / sourceTextOf：备注与硬信号都进材料与校验
   assert.equal(quoteIsVerbatim("一直修不好 VPN", source), true);
 });
 
-test("noticeMessage：v4 producer-owned source 与可读摘要", () => {
+test("noticeMessage：完整消息体 + v4 producer-owned source", () => {
   const msg = noticeMessage("turn", [{ kind: "repeat", quote: "restart ×3", why: "重复动作 ×3" }]);
-  assert.equal(msg.kind, "plugin:dsh-auxesis");
-  assert.equal(msg.form, "notice");
-  assert.match(msg.summary, /方向可能跑偏/);
-  assert.match(msg.summary, /重复动作/);
+  assert.equal(msg.role, "user");
+  assert.equal(msg.source.kind, "plugin:dsh-auxesis");
+  assert.equal(msg.source.form, "notice");
+  assert.match(msg.content[0].text, /方向可能跑偏/);
+  assert.match(msg.content[0].text, /重复动作/);
+  assert.equal(typeof msg.id, "string");
 });

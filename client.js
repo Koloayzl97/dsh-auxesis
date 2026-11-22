@@ -248,70 +248,191 @@ window.__ModuleLoader__.load({
       )
     }
 
-    // ── 发送栏「纠偏」按钮：备注可空，空则审上一条回答
+    // 校验图标：放大镜（内联 SVG，不依赖字体）
+    function VerifyIcon() {
+      return h('svg', {
+        width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none',
+        stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round',
+        style: { display: 'block' },
+      },
+        h('circle', { cx: 7, cy: 7, r: 4.2 }),
+        h('path', { d: 'M10.2 10.2L14 14' }),
+      )
+    }
+
+    // ── 发送栏「复核」按钮：备注可空，空则复核上一条回答
     function CorrectChip() {
       const [open, setOpen] = React.useState(false)
       const [note, setNote] = React.useState('')
       const [state, setState] = React.useState('idle')
       const [msg, setMsg] = React.useState('')
+      const [picked, setPicked] = React.useState([])
+      const [scope, setScope] = React.useState('recent')
+      const [anchored, setAnchored] = React.useState(false)
+      const [anchor, setAnchor] = React.useState(null)
+      React.useEffect(() => {
+        const measure = () => {
+          const el = document.querySelector('[data-aux-verify]')
+          if (!el) return null
+          const r = el.getBoundingClientRect()
+          if (!r.width) return null
+          return { right: Math.max(8, window.innerWidth - r.right), bottom: Math.max(8, window.innerHeight - r.top + 8) }
+        }
+        const onOpen = () => {
+          setAnchor(measure())
+          // 再点一次同一个按钮要能收起，所以是切换而不是只开
+          setOpen((v) => !v)
+          setAnchored(Boolean(window.__dshAuxAnchored))
+        }
+        const onAnchor = () => setAnchored(Boolean(window.__dshAuxAnchored))
+        const onDocDown = (e) => {
+          const t = e.target
+          if (t && (t.closest && (t.closest('[data-aux-panel]') || t.closest('[data-aux-verify]')))) return
+          setOpen(false)
+        }
+        document.addEventListener('mousedown', onDocDown, true)
+        window.addEventListener('dsh-auxesis:verify', onOpen)
+        window.addEventListener('dsh-auxesis:anchored', onAnchor)
+        onAnchor()
+        return () => {
+          window.removeEventListener('dsh-auxesis:verify', onOpen)
+          document.removeEventListener('mousedown', onDocDown, true)
+          window.removeEventListener('dsh-auxesis:anchored', onAnchor)
+        }
+      }, [])
+      const CHIPS = [
+        ['方向错了', '我觉得方向跑偏了：'],
+        ['证据不足', '你给的结论没有依据，先把证据拿出来：'],
+        ['别再动它', '不要再改这个文件 / 这个配置：'],
+        ['更保守', '换一个更保守、可回滚的做法：'],
+      ]
 
       const submit = async () => {
         if (state === 'running') return
         setState('running')
-        setMsg('')
+        setMsg('检查中…（约 15–30 秒）')
+        const ctl = new AbortController()
+        const timer = setTimeout(() => ctl.abort(), 120000)
         try {
           const res = await fetch('/dsh-auxesis/correct', {
             method: 'POST',
             headers: { 'content-type': 'application/json', accept: 'application/json' },
-            body: JSON.stringify({ note: note.trim() || undefined }),
+            body: JSON.stringify({
+              note: (picked.map((k) => (CHIPS.find((c) => c[0] === k) || [])[1] || '').join(' ') + ' ' + note).trim() || undefined,
+              scope,
+            }),
+            signal: ctl.signal,
           })
           const j = await res.json()
-          if (!j || !j.ok) throw new Error((j && (j.message || j.error)) || '纠偏失败')
+          if (!j || !j.ok) throw new Error((j && (j.message || j.error)) || '复核失败')
           const v = j.verdict || {}
+          const delivered = j.delivered || 'skipped'
+          const tail = delivered === 'followup' ? '，已拉起主模型改向'
+            : delivered === 'busy' ? '（模型正忙，结论未送达）'
+              : delivered === 'error' ? '（回流失败：' + (j.followupError || '未知') + '）'
+                : '（未回流）'
           setState('done')
-          setMsg(v.verdict === 'turn' ? '方向跑偏，已让主模型改向' : '方向基本正确')
+          setMsg((v.verdict === 'turn' ? '方向跑偏：' + (v.correct_next || '见结论') : '方向基本正确') + tail)
           setNote('')
-          setTimeout(() => { setOpen(false); setState('idle'); setMsg('') }, 2600)
+          setTimeout(() => { setOpen(false); setState('idle'); setMsg('') }, 8000)
         } catch (e) {
           setState('error')
-          setMsg(String((e && e.message) || e))
+          setMsg(e && e.name === 'AbortError'
+            ? '超时（120s）：插件可能卡在上游，详见 events.jsonl'
+            : String((e && e.message) || e))
+        } finally {
+          clearTimeout(timer)
         }
       }
 
       const tone = state === 'error' ? '#e5484d' : state === 'done' ? '#30a46c' : 'inherit'
 
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6, margin: '2px auto', maxWidth: 560, width: '100%' } },
-        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
-          h('button', {
-            type: 'button',
-            className: 'aux-toggle',
-            'data-on': open ? '1' : '0',
-            onClick: () => { setOpen((v) => !v); setMsg('') },
-            title: '让 auxesis 检查当前方向；备注可空，空则审上一条回答',
-            style: {
-              display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, lineHeight: '18px',
-              padding: '2px 10px', borderRadius: 999, cursor: 'pointer',
-              border: '1px solid var(--dsh-border, rgba(127,127,127,.3))',
-              color: 'inherit', opacity: 0.85, userSelect: 'none',
-            },
-          }, '⟲ 纠偏'),
-          msg ? h('span', { style: { fontSize: 11, opacity: 0.8, color: tone } }, msg) : null,
-        ),
+      // 入口已经在输入框里了：收起时不占任何布局空间（连 2px margin 都不要）
+      if (anchored && !open) return null
+
+      return h('div', {
+        // 注入模式下这个容器本身不能占位：fixed + 零尺寸，面板自己再 fixed 定位
+        style: anchored
+          ? { position: 'fixed', top: 0, left: 0, width: 0, height: 0, margin: 0, padding: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 40 }
+          : { position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, margin: '2px auto', maxWidth: 560, width: '100%' },
+      },
+        msg ? h('span', { style: { fontSize: 11, opacity: 0.8, color: tone, marginRight: 'auto' } }, msg) : null,
+        anchored ? null : h('button', {
+          type: 'button',
+          className: 'aux-toggle',
+          'data-on': open ? '1' : '0',
+          onClick: () => { setOpen((v) => !v); setMsg('') },
+          title: '校验：把会话里说过的话和盘上现在的事实，交给 auxesis 外部核一遍',
+          style: {
+            width: 22, height: 22, padding: 0, borderRadius: 6, cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, border: '1px solid var(--dsh-border, rgba(127,127,127,.25))',
+            background: 'transparent', color: 'inherit', opacity: open ? 1 : 0.45,
+          },
+        }, '◈'),
         open
-          ? h('div', { style: { display: 'flex', gap: 6 } },
-              h('input', {
+          ? h('div', {
+              'data-aux-panel': '1',
+              style: {
+                position: 'fixed',
+                right: (anchor ? anchor.right : 16) + 'px',
+                bottom: (anchor ? anchor.bottom : 120) + 'px',
+                zIndex: 40, width: 340, pointerEvents: 'auto',
+                display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px',
+                border: '1px solid var(--dsh-border, rgba(127,127,127,.3))', borderRadius: 12,
+                background: 'var(--dsh-surface, #1b1b1e)', color: 'inherit',
+                boxShadow: '0 8px 28px rgba(0,0,0,.35)',
+              },
+            },
+              h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
+                CHIPS.map(([label, fill]) => {
+                  const on = picked.includes(label)
+                  return h('button', {
+                    key: label, type: 'button',
+                    onClick: () => setPicked((cur) => (on ? cur.filter((x) => x !== label) : [...cur, label])),
+                    style: {
+                      fontSize: 11, padding: '2px 9px', borderRadius: 999, cursor: 'pointer',
+                      border: '1px solid ' + (on ? 'var(--dsh-accent, #6e9ef2)' : 'var(--dsh-border, rgba(127,127,127,.3))'),
+                      background: on ? 'var(--dsh-accent-soft, rgba(110,158,242,.14))' : 'transparent',
+                      color: 'inherit', opacity: on ? 1 : 0.75,
+                    },
+                  }, label)
+                }),
+              ),
+              h('textarea', {
                 value: note,
-                placeholder: '备注（可空）：例如 这个模型一直修不好我的 VPN',
+                rows: 2,
+                placeholder: '可选：用一句话说清哪里不对（Enter 发起，Shift+Enter 换行）',
                 onChange: (e) => setNote(e.target.value),
-                onKeyDown: (e) => { if (e.key === 'Enter') submit() },
+                onKeyDown: (e) => {
+                  if (e.key === 'Escape') { setOpen(false); setMsg('') }
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+                },
                 style: {
-                  flex: 1, minWidth: 0, padding: '5px 10px', borderRadius: 8, fontSize: 12,
+                  width: '100%', boxSizing: 'border-box', resize: 'vertical',
+                  padding: '6px 10px', borderRadius: 8, fontSize: 12, lineHeight: '18px',
                   border: '1px solid var(--dsh-border, rgba(127,127,127,.35))',
-                  background: 'transparent', color: 'inherit',
+                  background: 'transparent', color: 'inherit', fontFamily: 'inherit',
                 },
               }),
-              h('button', { type: 'button', disabled: state === 'running', onClick: submit },
-                state === 'running' ? '检查中…' : '检查'),
+              h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, opacity: 0.75 } },
+                h('span', null, '范围'),
+                h('button', {
+                  type: 'button', onClick: () => setScope('recent'),
+                  style: { fontSize: 11, padding: '1px 7px', borderRadius: 999, cursor: 'pointer',
+                    border: '1px solid ' + (scope === 'recent' ? 'var(--dsh-accent, #6e9ef2)' : 'var(--dsh-border, rgba(127,127,127,.3))'),
+                    background: 'transparent', color: 'inherit', opacity: scope === 'recent' ? 1 : 0.6 },
+                }, '最近'),
+                h('button', {
+                  type: 'button', onClick: () => setScope('all'),
+                  style: { fontSize: 11, padding: '1px 7px', borderRadius: 999, cursor: 'pointer',
+                    border: '1px solid ' + (scope === 'all' ? 'var(--dsh-accent, #6e9ef2)' : 'var(--dsh-border, rgba(127,127,127,.3))'),
+                    background: 'transparent', color: 'inherit', opacity: scope === 'all' ? 1 : 0.6 },
+                }, '全段'),
+                h('span', { style: { flex: 1 } }),
+                h('button', { type: 'button', disabled: state === 'running', onClick: submit },
+                  state === 'running' ? '校验中…' : '发起'),
+              ),
             )
           : null,
       )
@@ -561,10 +682,73 @@ window.__ModuleLoader__.load({
           )), 'dsh-auxesis: 工具行 ' + key)
         }
 
+        // 输入框内入口：composer.dock 在框外，所以直接把这个 22px 图标插进输入框容器，
+        // 通过事件驱动下面的面板。DOM 会被 React 重渲染，所以用 MutationObserver + 定时器补挂。
+        ctx.effect(() => {
+          const findBox = () => {
+            // DSH 的输入框是 contenteditable，不是 textarea；两种都认，取最靠下的那个
+            const tas = [...document.querySelectorAll('[contenteditable="true"], textarea')].filter((t) => {
+              const r = t.getBoundingClientRect()
+              return r.width > 120 && r.height > 24 && getComputedStyle(t).visibility !== 'hidden'
+            })
+            if (!tas.length) return null
+            tas.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom)
+            let el = tas[0].parentElement
+            for (let i = 0; i < 4 && el; i++) {
+              const cs = getComputedStyle(el)
+              if (parseFloat(cs.borderTopWidth) > 0 || parseFloat(cs.borderRadius) > 0) return el
+              el = el.parentElement
+            }
+            return tas[0].parentElement
+          }
+          const btn = document.createElement('button')
+          btn.type = 'button'
+          btn.textContent = '◈'
+          btn.setAttribute('data-aux-verify', '1')
+          btn.title = '校验：把会话里说过的话和盘上现在的事实，交给 auxesis 外部核一遍'
+          Object.assign(btn.style, {
+            position: 'absolute', right: '10px', top: '6px', zIndex: 6,
+            width: '22px', height: '22px', padding: '0', borderRadius: '6px', cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '13px', lineHeight: '20px',
+            border: '1px solid var(--dsh-border, rgba(127,127,127,.25))',
+            background: 'transparent', color: 'inherit', opacity: '0.5',
+          })
+          btn.addEventListener('mouseenter', () => { btn.style.opacity = '1' })
+          btn.addEventListener('mouseleave', () => { btn.style.opacity = '0.5' })
+          btn.addEventListener('click', (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            window.dispatchEvent(new CustomEvent('dsh-auxesis:verify'))
+          })
+          let marked = false
+          const attach = () => {
+            const box = findBox()
+            if (!box) return
+            if (getComputedStyle(box).position === 'static') box.style.position = 'relative'
+            if (btn.parentElement !== box) box.appendChild(btn)
+            if (!marked) {
+              marked = true
+              window.__dshAuxAnchored = true
+              window.dispatchEvent(new CustomEvent('dsh-auxesis:anchored'))
+            }
+          }
+          const mo = new MutationObserver(attach)
+          mo.observe(document.body, { childList: true, subtree: true })
+          const timer = setInterval(attach, 800)
+          attach()
+          return () => {
+            mo.disconnect()
+            clearInterval(timer)
+            btn.remove()
+            window.__dshAuxAnchored = false
+          }
+        }, 'dsh-auxesis: 输入框内校验入口')
+
         ctx.effect(() => slots.inject('conversation.composer.dock', () => slots.register(
           { name: 'conversation.composer.dock', id: 'auxesis-correct', order: 38 },
           CorrectChip,
-        )), 'dsh-auxesis: 纠偏按钮')
+        )), 'dsh-auxesis: 复核按钮')
 
         ctx.effect(() => slots.inject('conversation.composer.dock', () => slots.register(
           { name: 'conversation.composer.dock', id: 'auxesis-auto', order: 39 },

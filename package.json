@@ -1,6 +1,6 @@
 {
   "name": "dsh-auxesis",
-  "version": "0.9.1",
+  "version": "0.9.10",
   "description": "Auxesis（能力增益）：勾选已有模型路由，把「答错会返工」的关键一步交给更强的一路倒推，并把每次的瓶颈模式沉淀下来供下一次复用。",
   "private": true,
   "type": "module",
