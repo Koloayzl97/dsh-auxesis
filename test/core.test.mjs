@@ -74,8 +74,8 @@ const tool = (name) => {
   return t;
 };
 
-test("注册了两个工具：auxesis / auxesis_investigate（auxesis_steps 已并入）", () => {
-  assert.deepEqual([...ctx.tools.map.keys()].sort(), ["auxesis", "auxesis_investigate"]);
+test("注册了三个工具：auxesis / auxesis_investigate / auxesis_done（steps 已并入）", () => {
+  assert.deepEqual([...ctx.tools.map.keys()].sort(), ["auxesis", "auxesis_done", "auxesis_investigate"]);
   assert.equal(ctx.tools.map.has("auxesis_steps"), false, "auxesis_steps 不应再注册");
   assert.equal(tool("auxesis").parameters.required[0], "want");
   assert.deepEqual(tool("auxesis").parameters.properties.want.enum, ["judgment", "steps"]);
