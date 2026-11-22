@@ -248,6 +248,75 @@ window.__ModuleLoader__.load({
       )
     }
 
+    // ── 发送栏「纠偏」按钮：备注可空，空则审上一条回答
+    function CorrectChip() {
+      const [open, setOpen] = React.useState(false)
+      const [note, setNote] = React.useState('')
+      const [state, setState] = React.useState('idle')
+      const [msg, setMsg] = React.useState('')
+
+      const submit = async () => {
+        if (state === 'running') return
+        setState('running')
+        setMsg('')
+        try {
+          const res = await fetch('/dsh-auxesis/correct', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({ note: note.trim() || undefined }),
+          })
+          const j = await res.json()
+          if (!j || !j.ok) throw new Error((j && (j.message || j.error)) || '纠偏失败')
+          const v = j.verdict || {}
+          setState('done')
+          setMsg(v.verdict === 'turn' ? '方向跑偏，已让主模型改向' : '方向基本正确')
+          setNote('')
+          setTimeout(() => { setOpen(false); setState('idle'); setMsg('') }, 2600)
+        } catch (e) {
+          setState('error')
+          setMsg(String((e && e.message) || e))
+        }
+      }
+
+      const tone = state === 'error' ? '#e5484d' : state === 'done' ? '#30a46c' : 'inherit'
+
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6, margin: '2px auto', maxWidth: 560, width: '100%' } },
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+          h('button', {
+            type: 'button',
+            className: 'aux-toggle',
+            'data-on': open ? '1' : '0',
+            onClick: () => { setOpen((v) => !v); setMsg('') },
+            title: '让 auxesis 检查当前方向；备注可空，空则审上一条回答',
+            style: {
+              display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, lineHeight: '18px',
+              padding: '2px 10px', borderRadius: 999, cursor: 'pointer',
+              border: '1px solid var(--dsh-border, rgba(127,127,127,.3))',
+              color: 'inherit', opacity: 0.85, userSelect: 'none',
+            },
+          }, '⟲ 纠偏'),
+          msg ? h('span', { style: { fontSize: 11, opacity: 0.8, color: tone } }, msg) : null,
+        ),
+        open
+          ? h('div', { style: { display: 'flex', gap: 6 } },
+              h('input', {
+                value: note,
+                placeholder: '备注（可空）：例如 这个模型一直修不好我的 VPN',
+                onChange: (e) => setNote(e.target.value),
+                onKeyDown: (e) => { if (e.key === 'Enter') submit() },
+                style: {
+                  flex: 1, minWidth: 0, padding: '5px 10px', borderRadius: 8, fontSize: 12,
+                  border: '1px solid var(--dsh-border, rgba(127,127,127,.35))',
+                  background: 'transparent', color: 'inherit',
+                },
+              }),
+              h('button', { type: 'button', disabled: state === 'running', onClick: submit },
+                state === 'running' ? '检查中…' : '检查'),
+            )
+          : null,
+      )
+    }
+
     // ── 发送栏开关：自动决策。开着时可逆决策不问用户，模型直接调 auxesis 拿结论并执行。
     function AutoDecideChip() {
       const [on, setOn] = React.useState(null)
@@ -491,6 +560,11 @@ window.__ModuleLoader__.load({
             AuxesisRow,
           )), 'dsh-auxesis: 工具行 ' + key)
         }
+
+        ctx.effect(() => slots.inject('conversation.composer.dock', () => slots.register(
+          { name: 'conversation.composer.dock', id: 'auxesis-correct', order: 38 },
+          CorrectChip,
+        )), 'dsh-auxesis: 纠偏按钮')
 
         ctx.effect(() => slots.inject('conversation.composer.dock', () => slots.register(
           { name: 'conversation.composer.dock', id: 'auxesis-auto', order: 39 },

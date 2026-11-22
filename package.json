@@ -47,7 +47,7 @@
   },
   "license": "MIT",
   "scripts": {
-    "test": "node --test test/core.test.mjs test/quality.test.mjs",
+    "test": "node --test test/core.test.mjs test/quality.test.mjs test/correct.test.mjs",
     "summary": "node scripts/summary.mjs"
   }
 }
