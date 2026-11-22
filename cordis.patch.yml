@@ -1,0 +1,5 @@
+# dsh-auxesis — bundle patch layer
+# 一行 insert：profile 的 package.json 里 dsh.profile.bundles 列了本包即整层生效
+- insert:
+    - id: auxesis
+      name: dsh-auxesis

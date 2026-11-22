@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Auxesis · Capability lift",
+    "description": "Tick the model routes you already have and hand the one step that must not be wrong to a stronger route: it reasons backward from the target to the necessary preconditions, finds the bottleneck holding up the most downstream work, and returns the shortest forward path as structured JSON. Each successful run distills a bottleneck pattern that future turns can reuse on their own."
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+*.log
+data/
+events.jsonl
+events.1.jsonl
+.DS_Store
+Thumbs.db
